@@ -1,7 +1,7 @@
 import lightgbm as lgb
 import pandas as pd
 
-from ..features import FEATURE_COLS
+from quant.features import FEATURE_COLS
 from .base import ReturnForecaster
 
 DEFAULTS = dict(n_estimators=400, learning_rate=0.03, num_leaves=31,

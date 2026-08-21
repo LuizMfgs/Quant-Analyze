@@ -4,12 +4,6 @@ import pandas as pd
 
 def walk_forward(model_factory, df: pd.DataFrame,
                  initial_train=756, step=21, min_train=252) -> pd.DataFrame:
-    """
-    df: model frame (date-sorted cross sections with target_date, y).
-    At each decision date d: train on rows whose label is REALIZED by d,
-    predict the cross-section at d, compare to realized y later.
-    Returns tidy [ticker, date, y, pred].
-    """
     dates = np.sort(df["date"].unique())
     recs = []
     for d in dates[initial_train::step]:
