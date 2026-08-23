@@ -1,18 +1,37 @@
 name: daily-pipeline
 on:
   schedule:
-    - cron: "0 22 * * 1-5"     # 22:00 UTC ≈ after US market close
-  workflow_dispatch:            # manual trigger button
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
 jobs:
   run:
     runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
+        with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
+
+      - name: Open DB port for this runner
+        run: |
+          IP=$(curl -s https://checkip.amazonaws.com)
+          echo "RUNNER_IP=$IP" >> $GITHUB_ENV
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ secrets.DB_SG_ID }} \
+            --protocol tcp --port 5432 --cidr $IP/32 || true
+
       - run: python -m quant.pipeline daily
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+
+      - name: Close DB port
+        if: always()
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.DB_SG_ID }} \
+            --protocol tcp --port 5432 --cidr $RUNNER_IP/32 || true

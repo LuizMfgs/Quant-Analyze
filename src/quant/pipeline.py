@@ -2,10 +2,8 @@
 import datetime as dt
 import json
 import sys
-
 import numpy as np
 import pandas as pd
-
 from . import db, features, ingest, portfolio as pf
 from .config import load_cfg
 from .evaluate import metrics, residual_std_by_ticker, walk_forward
@@ -67,6 +65,19 @@ def optimize_step(prices_long, fc, resid, cfg):
     return w, rets, vols
 
 
+def _heartbeat():
+    """Emit a CloudWatch metric on success — a missed run trips the alarm.
+    Telemetry must never fail the pipeline, hence the blanket try/except."""
+    try:
+        import boto3
+        boto3.client("cloudwatch").put_metric_data(
+            Namespace="Quant/Pipeline",
+            MetricData=[{"MetricName": "RunCompleted", "Unit": "Count", "Value": 1}],
+        )
+    except Exception as e:
+        print(f"[heartbeat] skipped: {e}")
+
+
 def daily(cfg=None):
     cfg = cfg or load_cfg()
     prices = get_prices(cfg)
@@ -90,23 +101,23 @@ def daily(cfg=None):
         db.save_rebalance(w, dt.date.today(), "initial allocation",
                           config={"vols_annualized": vols})
         print("[rebalance] initial allocation saved")
-        return
-
-    since = rets.loc[rets.index > pd.Timestamp(last_date)]
-    cum = (1 + since).prod() - 1
-    current = pf.drifted(last_w, cum.iloc[-1] if len(cum) else pd.Series(0.0, index=last_w.index))
-    new_w = pf.apply_bands(current, w, band=cfg.get("band", 0.05))
-    turnover = pf.one_way_turnover(current, new_w)
-
-    if turnover < cfg.get("min_turnover", 0.05):
-        print(f"[rebalance] skipped — one-way turnover {turnover:.1%} < "
-              f"{cfg.get('min_turnover', 0.05):.0%}")
     else:
-        db.save_rebalance(new_w, dt.date.today(),
-                          f"drift {turnover:.1%} exceeded band {cfg.get('band', 0.05):.0%}",
-                          config={"one_way_turnover": turnover, "vols_annualized": vols})
-        print(f"[rebalance] saved, one-way turnover {turnover:.1%}")
+        since = rets.loc[rets.index > pd.Timestamp(last_date)]
+        cum = (1 + since).prod() - 1
+        current = pf.drifted(last_w, cum.iloc[-1] if len(cum) else pd.Series(0.0, index=last_w.index))
+        new_w = pf.apply_bands(current, w, band=cfg.get("band", 0.05))
+        turnover = pf.one_way_turnover(current, new_w)
 
+        if turnover < cfg.get("min_turnover", 0.05):
+            print(f"[rebalance] skipped — one-way turnover {turnover:.1%} < "
+                  f"{cfg.get('min_turnover', 0.05):.0%}")
+        else:
+            db.save_rebalance(new_w, dt.date.today(),
+                              f"drift {turnover:.1%} exceeded band {cfg.get('band', 0.05):.0%}",
+                              config={"one_way_turnover": turnover, "vols_annualized": vols})
+            print(f"[rebalance] saved, one-way turnover {turnover:.1%}")
+
+    _heartbeat()
 
 def backfill(cfg=None):
     cfg = cfg or load_cfg()

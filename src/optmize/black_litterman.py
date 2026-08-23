@@ -46,6 +46,5 @@ def optimize(mu: pd.Series, S: pd.DataFrame, objective="max_sharpe",
 
 
 def hrp_weights(returns: pd.DataFrame) -> pd.Series:
-    """Robustness benchmark: no return forecasts, no covariance inversion."""
     w = HRPOpt(returns=returns.dropna()).optimize()
     return pd.Series(w)
