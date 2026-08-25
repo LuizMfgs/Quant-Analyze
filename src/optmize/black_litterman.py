@@ -12,7 +12,6 @@ def black_litterman(S, w_mkt, views: pd.Series, view_var: pd.Series,
     """
     views:     annualized expected return per ticker (model forecast).
     view_var:  per-view variance (annualized residual variance of the forecaster).
-    Assets without a view fall back to the equilibrium prior.
     """
     pi = implied_returns(S, w_mkt, risk_aversion)
     idx = views.dropna().index.intersection(S.index)

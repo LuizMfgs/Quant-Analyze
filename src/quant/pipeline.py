@@ -4,7 +4,8 @@ import json
 import sys
 import numpy as np
 import pandas as pd
-from . import db, features, ingest, portfolio as pf
+from . import db, features, ingest
+from src.optmize import portifolio as pf
 from .config import load_cfg
 from .evaluate import metrics, residual_std_by_ticker, walk_forward
 from src.models.gbdt import LGBMForecaster
@@ -32,7 +33,11 @@ def forecast_step(prices_long, cfg):
     model = LGBMForecaster(cfg.get("lgbm_params")).fit(df[df["y"].notna()],
                                                        df.loc[df["y"].notna(), "y"])
     last_date = df["date"].max()
-    live = df[df["date"] == last_date]
+    live = df[df["date"] == last_date].copy()                          # ← added .copy()
+    # Model frame has NaT target_date for the last `horizon` rows (future not yet
+    # observed). Project forward as h business days — close enough for recording
+    # the forecast; holidays differ by ~10/year, negligible for this purpose.
+    live["target_date"] = last_date + pd.offsets.BDay(h)              # ← NEW LINE
     p = model.predict(live)
     sd = live["ticker"].map(resid).fillna(resid.mean()).values
 
@@ -42,7 +47,6 @@ def forecast_step(prices_long, cfg):
     fc["interval_low"] = p - 1.96 * sd
     fc["interval_high"] = p + 1.96 * sd
     return fc.rename(columns={"date": "forecast_date"}), model, m, resid
-
 
 def optimize_step(prices_long, fc, resid, cfg):
     h = cfg["horizon_days"]

@@ -1,7 +1,6 @@
 import json
 import os
 from contextlib import contextmanager
-
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
@@ -15,7 +14,7 @@ def get_conn():
 def get_cursor():
     conn = get_conn()
     try:
-        with conn:                      # commits on success, rolls back on error
+        with conn:                  
             with conn.cursor() as cur:
                 yield cur
     finally:
@@ -107,18 +106,19 @@ def register_model(name, algorithm, hyperparams=None, metrics=None) -> str:
     return model_id
 
 
-def upload_artifact(model_id, model, bucket="model-artifacts"):
-    """Persist fitted model to Supabase Storage. Create the (private) bucket once in the UI."""
+def upload_artifact(model_id, model, bucket=None):
     import io
+    import boto3
     import joblib
-    from supabase import create_client
+
+    bucket = bucket or os.environ["S3_BUCKET"]
     buf = io.BytesIO()
     joblib.dump(model, buf)
-    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-    sb.storage.from_(bucket).upload(f"{model_id}.joblib", buf.getvalue())
+    boto3.client("s3").put_object(
+        Bucket=bucket, Key=f"models/{model_id}.joblib", Body=buf.getvalue())
     with get_cursor() as cur:
         cur.execute("update models set artifact_path = %s where id = %s",
-                    (f"{bucket}/{model_id}.joblib", model_id))
+                    (f"s3://{bucket}/models/{model_id}.joblib", model_id))
 
 
 def save_forecasts(model_id, df: pd.DataFrame):

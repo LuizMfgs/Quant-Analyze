@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import quantstats as qs
 
-from . import features, portfolio as pf
+from . import features
+from src.optmize import portifolio as pf
 from src.models.gbdt import LGBMForecaster
 from src.optmize.black_litterman import black_litterman, optimize
 from src.optmize.covariance import shrunk_cov
