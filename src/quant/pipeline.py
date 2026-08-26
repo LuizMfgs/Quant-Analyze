@@ -1,17 +1,18 @@
-"""Usage: python -m quant.pipeline daily|backfill|backtest"""
+﻿"""Usage: python -m quant.pipeline daily|backfill|backtest"""
 import datetime as dt
 import json
 import sys
-import numpy as np
+
 import pandas as pd
+
 from . import db, features, ingest
-from src.optmize import portifolio as pf
 from .config import load_cfg
 from .evaluate import metrics, residual_std_by_ticker, walk_forward
-from src.models.gbdt import LGBMForecaster
-from src.models.garch import garch_vol_forecast
-from src.optmize.black_litterman import black_litterman, optimize
-from src.optmize.covariance import shrunk_cov
+from .models.gbdt import LGBMForecaster
+from .models.garch import garch_vol_forecast
+from .optimize import portfolio as pf
+from .optimize.black_litterman import black_litterman, optimize
+from .optimize.covariance import shrunk_cov
 
 
 def get_prices(cfg):
@@ -33,11 +34,10 @@ def forecast_step(prices_long, cfg):
     model = LGBMForecaster(cfg.get("lgbm_params")).fit(df[df["y"].notna()],
                                                        df.loc[df["y"].notna(), "y"])
     last_date = df["date"].max()
-    live = df[df["date"] == last_date].copy()                          # ← added .copy()
-    # Model frame has NaT target_date for the last `horizon` rows (future not yet
-    # observed). Project forward as h business days — close enough for recording
-    # the forecast; holidays differ by ~10/year, negligible for this purpose.
-    live["target_date"] = last_date + pd.offsets.BDay(h)              # ← NEW LINE
+    live = df[df["date"] == last_date].copy()
+    # Model frame has NaT target_date on the last rows (future not observed yet).
+    # Project forward h business days for recording purposes.
+    live["target_date"] = last_date + pd.offsets.BDay(h)
     p = model.predict(live)
     sd = live["ticker"].map(resid).fillna(resid.mean()).values
 
@@ -48,6 +48,7 @@ def forecast_step(prices_long, cfg):
     fc["interval_high"] = p + 1.96 * sd
     return fc.rename(columns={"date": "forecast_date"}), model, m, resid
 
+
 def optimize_step(prices_long, fc, resid, cfg):
     h = cfg["horizon_days"]
     rets = features.simple_returns_wide(prices_long)
@@ -56,7 +57,7 @@ def optimize_step(prices_long, fc, resid, cfg):
     S = shrunk_cov(rets.tail(cfg.get("cov_window", 756)))
     w_mkt = pd.Series(1.0 / S.shape[0], index=S.index)
 
-    views = fc.set_index("ticker")["expected_return"] * (252 / h)      # annualize
+    views = fc.set_index("ticker")["expected_return"] * (252 / h)
     view_var = (resid.reindex(S.index).fillna(resid.mean()) ** 2) * (252 / h)
 
     mu_bl, S_bl = black_litterman(S, w_mkt, views, view_var,
@@ -70,8 +71,8 @@ def optimize_step(prices_long, fc, resid, cfg):
 
 
 def _heartbeat():
-    """Emit a CloudWatch metric on success — a missed run trips the alarm.
-    Telemetry must never fail the pipeline, hence the blanket try/except."""
+    """Emit a CloudWatch metric on success - a missed run trips the alarm.
+    Telemetry must never fail the pipeline."""
     try:
         import boto3
         boto3.client("cloudwatch").put_metric_data(
@@ -108,13 +109,14 @@ def daily(cfg=None):
     else:
         since = rets.loc[rets.index > pd.Timestamp(last_date)]
         cum = (1 + since).prod() - 1
-        current = pf.drifted(last_w, cum.iloc[-1] if len(cum) else pd.Series(0.0, index=last_w.index))
+        # pass the whole per-ticker Series, not a single scalar
+        current = pf.drifted(last_w, cum if len(cum) else pd.Series(0.0, index=last_w.index))
         new_w = pf.apply_bands(current, w, band=cfg.get("band", 0.05))
         turnover = pf.one_way_turnover(current, new_w)
 
         if turnover < cfg.get("min_turnover", 0.05):
-            print(f"[rebalance] skipped — one-way turnover {turnover:.1%} < "
-                  f"{cfg.get('min_turnover', 0.05):.0%}")
+            print(f"[rebalance] skipped - one-way turnover {turnover:.1%} below "
+                  f"threshold {cfg.get('min_turnover', 0.05):.0%}")
         else:
             db.save_rebalance(new_w, dt.date.today(),
                               f"drift {turnover:.1%} exceeded band {cfg.get('band', 0.05):.0%}",
@@ -122,6 +124,7 @@ def daily(cfg=None):
             print(f"[rebalance] saved, one-way turnover {turnover:.1%}")
 
     _heartbeat()
+
 
 def backfill(cfg=None):
     cfg = cfg or load_cfg()
