@@ -1,11 +1,3 @@
-#Priority
-.env
-.venv/
-__pycache__/
-*.pyc
-.env
-.venv/
-
 # Logs
 logs
 *.log

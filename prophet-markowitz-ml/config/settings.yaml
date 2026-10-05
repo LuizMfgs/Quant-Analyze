@@ -1,0 +1,34 @@
+# Pipeline configuration
+tickers:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - AMZN
+  - NVDA
+  - JPM
+  - XOM
+  - JNJ
+  - GLD    # gold ETF  — diversifier
+  - TLT    # 20+yr US Treasuries ETF — defensive asset
+
+data:
+  period: "2y"          # history window for training
+  interval: "1d"
+  cache_dir: "data/raw" # CSV cache; yfinance is only hit on cache miss
+
+forecast:
+  horizon_days: 90      # forecast horizon (calendar days)
+  test_days: 60         # held-out window for backtest metrics
+  prophet:
+    daily_seasonality: false
+    weekly_seasonality: true
+    yearly_seasonality: false  # < 730 days of history; yearly seasonality would be under-identified
+    changepoint_prior_scale: 0.05
+
+optimization:
+  risk_free_rate: 0.04  # annual, used for the Sharpe ratio
+  weight_bounds: [0.0, 0.35]  # long-only, 35% cap per asset
+  frontier_points: 40
+
+rebalance:
+  portfolio_value: 10000    # USD, for discrete share allocation
