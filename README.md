@@ -1,78 +1,92 @@
+# Market Analyzer
 
-## Key features
+A machine learning project that combines time-series forecasting with portfolio optimization:
 
-- **Return forecasting** — pooled LightGBM on lagged returns + technicals,
-  GARCH(1,1) volatility, with random-walk and historical-mean baselines
-- **Robust optimization** — Black-Litterman blends model forecasts with an
-  equilibrium prior; per-asset view uncertainty derived from walk-forward
-  residuals; Ledoit-Wolf shrinkage; HRP and min-variance benchmarks
-- **Cost-aware rebalancing** — drift bands and minimum-turnover thresholds,
-  so you only trade when it pays
-- **Leakage-proof evaluation** — walk-forward harness with realized-label
-  training rule, plus unit tests that prove features are trailing-only
-- **Supabase backend** — Postgres for prices/forecasts/weights, Storage for
-  model artifacts, model registry with auto-deactivation of stale models
-- **Streamlit dashboard** — current weights, forecast-vs-realized scatter,
-  rolling IC, and net-of-cost performance vs. equal-weight benchmark
-- **Scheduled via GitHub Actions** — zero-infrastructure daily runs after
-  market close
+1. Loads 2 years of daily prices for 10 assets (AAPL, MSFT, GOOGL, AMZN, NVDA, JPM, XOM, JNJ, GLD, TLT).
+2. Forecasts each asset 90 days ahead with **Prophet**, validated on a 60-day holdout.
+3. Turns the forecasts into expected returns and estimates risk with a **Ledoit-Wolf** covariance matrix.
+4. Solves the **Markowitz** problem (efficient frontier, max-Sharpe, minimum volatility).
+5. Computes a whole-share allocation for a $10k portfolio.
+6. Exports everything to `outputs/results.json`, which feeds the React dashboard.
 
-## Tech stack
+> **Disclaimer:** This is an educational project built for learning purposes only. It is **not** investment advice, a recommendation to buy or sell any security, or a product or tool to support investment decisions. See [Disclaimer](#disclaimer).
 
-Python · LightGBM · arch (GARCH) · PyPortfolioOpt · scikit-learn ·
-pandas · Supabase (Postgres + Storage) · Streamlit · Plotly ·
-QuantStats · yfinance · GitHub Actions · Docker
+## Structure
 
-## Quickstart
+```
+prophet-markowitz-ml/   Python pipeline (Prophet + Markowitz)
+  config/settings.yaml  tickers, horizon, constraints, portfolio size
+  data/raw/             cached prices (CSV)
+  outputs/              results.json, allocation.csv, prices.csv
+  src/forecast_portfolio/
+app/                    dashboard (React + Vite + Tailwind + Recharts)
+```
 
-```bash
-# 1. Create a Supabase project and run sql/001_schema.sql in the SQL editor
-# 2. Configure secrets
-cp .env.example .env        # fill in DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_KEY
+## Requirements
 
-# 3. Install
-pip install -r requirements.txt
+- Python 3.10, 3.11 or 3.12 (this project does not support 3.13+)
+- Node.js 20 or higher (dashboard only)
 
-# 4. Load history (~10y of daily bars)
-python -m quant.pipeline backfill
+## Installation and usage
 
-# 5. Verify no lookahead bugs
-pytest tests/ -q
+### Pipeline (Python)
 
-# 6. Run the full pipeline (ingest → forecast → optimize → rebalance decision)
-python -m quant.pipeline daily
+```powershell
+cd prophet-markowitz-ml
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1      # Linux/macOS: source .venv/bin/activate
+pip install -e .
+forecast-portfolio run
+```
 
-# 7. Backtest the whole strategy net of costs
-python -m quant.pipeline backtest     # writes reports/backtest.html
+To download fresh data from Yahoo Finance instead of using the cache:
 
-# 8. Launch the dashboard
-streamlit run app/dashboard.py
+```powershell
+forecast-portfolio run --refresh
+```
 
-Usage Command
-What it does
-python -m quant.pipeline backfill	Full historical data load into Supabase
-python -m quant.pipeline daily	Incremental sync, forecasts, optimization, rebalance signal
-python -m quant.pipeline backtest	Walk-forward backtest of BL vs. equal-weight vs. min-vol
-streamlit run app/dashboard.py	Interactive dashboard
-pytest tests/ -q	Lookahead / target-correctness tests
+Results are written to `prophet-markowitz-ml/outputs/`.
 
-Configuration
-All strategy parameters live in config.yaml: universe, forecast horizon,
-covariance window, weight bounds, rebalance band, transaction costs, and
-LightGBM hyperparameters.
+### Dashboard (React)
 
-Project structure
-text
+```powershell
+cd app
+npm install
+npm run dev
+```
 
-src/quant/
-├── ingest.py       # data ingestion + quality checks
-├── db.py           # Supabase access layer
-├── features.py     # trailing-only feature engineering
-├── models/         # baselines, LightGBM, GARCH
-├── evaluate.py     # walk-forward harness + metrics
-├── optimize/       # covariance, Black-Litterman, turnover control
-├── backtest.py     # full-loop net-of-cost backtest
-└── pipeline.py     # orchestration entrypoint
-Disclaimer
-This project is for research and education. Nothing here is financial advice.
-Past performance in a backtest does not predict future results.
+Open `http://localhost:3000`. To create a production build: `npm run build`.
+
+The dashboard reads `app/src/data/results.ts`, a static copy of `results.json`. After running the pipeline with new data, regenerate that file:
+
+```powershell
+$json = [System.IO.File]::ReadAllText((Resolve-Path prophet-markowitz-ml\outputs\results.json).Path)
+$ts = "import type { Results } from `"@/types/results`";`n`nexport const results: Results = $json;`n"
+[System.IO.File]::WriteAllText((Join-Path (Resolve-Path app).Path "src\data\results.ts"), $ts, (New-Object System.Text.UTF8Encoding($false)))
+```
+
+## Configuration
+
+Edit `prophet-markowitz-ml/config/settings.yaml`:
+
+| Key | What it controls |
+|---|---|
+| `tickers` | assets analyzed |
+| `forecast.horizon_days` / `test_days` | forecast horizon and holdout window |
+| `optimization.weight_bounds` | per-asset limit (default: 0% to 35%) |
+| `optimization.risk_free_rate` | risk-free rate (default: 4%) |
+| `rebalance.portfolio_value` | portfolio size in dollars |
+
+## Limitations
+
+- Prophet extrapolates trend and seasonality: it cannot see earnings, news or regime changes. On trending stocks it produces overly aggressive expected returns, which inflates the Sharpe ratio of the max-Sharpe portfolio.
+- Two years of daily data is thin for estimating yearly seasonality and a stable covariance matrix.
+
+## Disclaimer
+
+This project is for **educational purposes only**. It demonstrates how time-series forecasting and mean-variance optimization can be combined, and it is not meant to be used for real investing.
+
+- It is **not** investment advice, financial advice, or a recommendation to buy, sell or hold any asset.
+- It is **not** a product or service to assist investment decisions, and it should not be used as one.
+- Forecasts and allocations produced here are unreliable by design (see Limitations) and past data does not predict future results.
+- The author is not a financial advisor and accepts no responsibility for any losses resulting from the use of this code or its outputs. Do your own research and consult a qualified professional before making any investment decision.

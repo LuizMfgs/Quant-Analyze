@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "forecast-portfolio"
+version = "0.1.0"
+description = "End-to-end ML project: Prophet time-series forecasting + Markowitz portfolio optimisation"
+authors = ["Luiz Miguel <luiz@example.com>"]
+readme = "README.md"
+packages = [{ include = "forecast_portfolio", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+pandas = "^2.2"
+numpy = ">=1.26,<3.0"
+prophet = "^1.1"            # Facebook/Meta Prophet time-series model
+yfinance = "^0.2"           # free market data (Yahoo Finance)
+scipy = "^1.11"             # SLSQP solver used for the Markowitz QP
+scikit-learn = "^1.4"       # Ledoit-Wolf shrinkage covariance
+pydantic = "^2.7"           # config validation
+pyyaml = "^6.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+ruff = "^0.4"
+
+[tool.poetry.scripts]
+forecast-portfolio = "forecast_portfolio.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
